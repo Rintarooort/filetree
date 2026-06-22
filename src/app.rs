@@ -310,7 +310,7 @@ impl App {
                 };
 
                 self.message = Some(format!("Pasted {} item(s)", count));
-                let _ = self.tree.refresh();
+                self.reload_after_change();
             }
         }
     }
@@ -378,7 +378,7 @@ impl App {
         }
         self.message = Some(format!("Deleted {} item(s)", success));
         self.clear_marks();
-        let _ = self.tree.refresh();
+        self.reload_after_change();
         if self.selected >= self.tree.len() {
             self.selected = self.tree.len().saturating_sub(1);
         }
@@ -392,7 +392,7 @@ impl App {
                     match file_ops::rename_file(&path, &self.input_buffer) {
                         Ok(new_path) => {
                             self.message = Some(format!("Renamed to {}", new_path.display()));
-                            let _ = self.tree.refresh();
+                            self.reload_after_change();
                             self.select_path(&new_path);
                         }
                         Err(e) => {
@@ -406,7 +406,7 @@ impl App {
                     match file_ops::create_file(&dest_dir, &self.input_buffer) {
                         Ok(new_path) => {
                             self.message = Some(format!("Created {}", new_path.display()));
-                            let _ = self.tree.refresh();
+                            self.reload_after_change();
                             self.select_path(&new_path);
                         }
                         Err(e) => {
@@ -420,7 +420,7 @@ impl App {
                     match file_ops::create_directory(&dest_dir, &self.input_buffer) {
                         Ok(new_path) => {
                             self.message = Some(format!("Created {}", new_path.display()));
-                            let _ = self.tree.refresh();
+                            self.reload_after_change();
                             self.select_path(&new_path);
                         }
                         Err(e) => {
@@ -504,6 +504,13 @@ impl App {
         if self.selected >= self.tree.len() {
             self.selected = self.tree.len().saturating_sub(1);
         }
+    }
+
+    /// Reload the tree and recompute git status after an in-app file change,
+    /// so colors/badges stay current without a manual refresh.
+    fn reload_after_change(&mut self) {
+        let _ignore = self.tree.refresh();
+        self.git_repo.refresh(&self.tree.root.path);
     }
 
     pub fn toggle_hidden(&mut self) {
@@ -905,7 +912,7 @@ impl App {
                                 "Dropped: {}",
                                 path.file_name().unwrap_or_default().to_string_lossy()
                             ));
-                            let _ = self.tree.refresh();
+                            self.reload_after_change();
                         }
                         Err(e) => {
                             self.message = Some(format!("Copy error: {}", e));
@@ -996,7 +1003,7 @@ impl App {
                         "Dropped: {}",
                         path.file_name().unwrap_or_default().to_string_lossy()
                     ));
-                    let _ = self.tree.refresh();
+                    self.reload_after_change();
                     return true;
                 }
                 Err(e) => {
@@ -1026,7 +1033,7 @@ impl App {
 
         if success > 0 {
             self.message = Some(format!("Dropped {} item(s)", success));
-            let _ = self.tree.refresh();
+            self.reload_after_change();
             true
         } else {
             false
@@ -1057,7 +1064,7 @@ impl App {
 
         if success > 0 {
             self.message = Some(format!("Dropped {} item(s)", success));
-            let _ = self.tree.refresh();
+            self.reload_after_change();
         }
     }
 

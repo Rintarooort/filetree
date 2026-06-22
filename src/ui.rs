@@ -53,6 +53,37 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> usize {
     app.tree_area_height
 }
 
+/// VSCode-like right-aligned status letter + its color, or None for clean/ignored.
+fn git_badge(status: GitStatus) -> Option<(&'static str, Color)> {
+    match status {
+        GitStatus::Modified => Some(("M", Color::Rgb(0xE2, 0xC0, 0x8D))),
+        GitStatus::Renamed => Some(("R", Color::Rgb(0xE2, 0xC0, 0x8D))),
+        GitStatus::Added => Some(("A", Color::Rgb(0x73, 0xC9, 0x91))),
+        GitStatus::Untracked => Some(("U", Color::Rgb(0x73, 0xC9, 0x91))),
+        GitStatus::Deleted => Some(("D", Color::Rgb(0xC7, 0x4E, 0x39))),
+        GitStatus::Conflict => Some(("C", Color::Rgb(0xE4, 0x67, 0x6B))),
+        GitStatus::Ignored | GitStatus::None => None,
+    }
+}
+
+/// VSCode-like filename color for a git status.
+fn git_name_color(status: GitStatus, is_dir: bool) -> Color {
+    match status {
+        GitStatus::Modified | GitStatus::Renamed => Color::Rgb(0xE2, 0xC0, 0x8D),
+        GitStatus::Added | GitStatus::Untracked => Color::Rgb(0x73, 0xC9, 0x91),
+        GitStatus::Deleted => Color::Rgb(0xC7, 0x4E, 0x39),
+        GitStatus::Conflict => Color::Rgb(0xE4, 0x67, 0x6B),
+        GitStatus::Ignored => Color::Rgb(0x8C, 0x8C, 0x8C),
+        GitStatus::None => {
+            if is_dir {
+                Color::Blue
+            } else {
+                Color::Reset
+            }
+        }
+    }
+}
+
 fn draw_file_tree(frame: &mut Frame, app: &mut App, area: Rect) {
     let visible_height = area.height.saturating_sub(2) as usize;
     app.adjust_scroll(visible_height);
@@ -78,38 +109,48 @@ fn draw_file_tree(frame: &mut Frame, app: &mut App, area: Rect) {
 
             let mark_indicator = if is_marked { "*" } else { " " };
 
-            let mut style = Style::default();
-            if is_selected {
-                style = style.bg(Color::DarkGray).add_modifier(Modifier::BOLD);
-            }
-            if is_cut {
-                style = style.fg(Color::DarkGray);
+            // Selection highlight spans the whole row (VSCode-like).
+            let row_bg = if is_selected {
+                Color::DarkGray
             } else {
-                // Apply git status color
-                style = style.fg(match git_status {
-                    GitStatus::Modified => Color::Yellow,
-                    GitStatus::Added => Color::Green,
-                    GitStatus::Untracked => Color::Green,
-                    GitStatus::Deleted => Color::Red,
-                    GitStatus::Renamed => Color::Cyan,
-                    GitStatus::Conflict => Color::Magenta,
-                    GitStatus::Ignored => Color::DarkGray,
-                    GitStatus::None => {
-                        if node.is_dir {
-                            Color::Blue
-                        } else {
-                            Color::Reset
-                        }
-                    }
-                });
+                Color::Reset
+            };
+
+            let mut name_style = Style::default().bg(row_bg);
+            if is_selected {
+                name_style = name_style.add_modifier(Modifier::BOLD);
+            }
+            name_style = name_style.fg(if is_cut {
+                Color::DarkGray
+            } else {
+                git_name_color(git_status, node.is_dir)
+            });
+
+            let mut spans = vec![
+                Span::styled(
+                    mark_indicator,
+                    Style::default().fg(Color::Yellow).bg(row_bg),
+                ),
+                Span::styled(format!("{}{} {}", indent, icon, node.name), name_style),
+            ];
+
+            // VSCode-like right-aligned git status badge (M/A/U/D/R/C).
+            if let Some((letter, color)) = git_badge(git_status) {
+                let content_w: usize = spans.iter().map(|s| s.width()).sum();
+                let inner = (area.width as usize).saturating_sub(2);
+                let pad = inner.saturating_sub(content_w + 2);
+                spans.push(Span::styled(" ".repeat(pad), Style::default().bg(row_bg)));
+                spans.push(Span::styled(
+                    letter,
+                    Style::default()
+                        .fg(color)
+                        .bg(row_bg)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(" ", Style::default().bg(row_bg)));
             }
 
-            let line = Line::from(vec![
-                Span::styled(mark_indicator, Style::default().fg(Color::Yellow)),
-                Span::styled(format!("{}{} {}", indent, icon, node.name), style),
-            ]);
-
-            Some(ListItem::new(line))
+            Some(ListItem::new(Line::from(spans)))
         })
         .collect();
 

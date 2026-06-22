@@ -1131,6 +1131,36 @@ impl App {
         paths
     }
 
+    /// Reveal the selected file in Finder (macOS `open -R`).
+    #[cfg(target_os = "macos")]
+    pub fn reveal_in_finder(&mut self) {
+        let filepath = match self.tree.get_node(self.selected) {
+            Some(node) => node.path.to_string_lossy().to_string(),
+            None => {
+                self.message = Some("No file selected".to_string());
+                return;
+            }
+        };
+
+        match std::process::Command::new("open")
+            .arg("-R")
+            .arg(&filepath)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(_) => self.message = Some(format!("Revealed in Finder: {}", filepath)),
+            Err(e) => self.message = Some(format!("Reveal failed: {}", e)),
+        }
+    }
+
+    /// Reveal in Finder is macOS-only; show a message elsewhere.
+    #[cfg(not(target_os = "macos"))]
+    pub fn reveal_in_finder(&mut self) {
+        self.message = Some("Reveal in Finder is macOS only".to_string());
+    }
+
     pub fn execute_external_command(&mut self, command_override: Option<String>) {
         // Determine which command to use
         let command_template = command_override

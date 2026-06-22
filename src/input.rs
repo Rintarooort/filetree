@@ -103,8 +103,11 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent) {
         // Reload tree
         KeyCode::Char('R') | KeyCode::F(5) => app.refresh(),
 
-        // Reveal selected file in Finder (macOS)
-        KeyCode::Char('F') => app.reveal_in_finder(),
+        // Reveal selected file in Finder (macOS).
+        // Guard on empty drop_buffer so dropped paths containing f/F still buffer.
+        KeyCode::Char('f') | KeyCode::Char('F') if app.drop_buffer.is_empty() => {
+            app.reveal_in_finder()
+        }
 
         // Toggle hidden files
         KeyCode::Char('.') => app.toggle_hidden(),
@@ -119,7 +122,7 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent) {
 
         // Help
         KeyCode::Char('?') => {
-            app.message = Some("o:preview  P:quick  c:path  C:name  y:yank  d:cut  p:paste  D:del  r:rename  a:file  A:dir  F:finder  Enter:cmd  colon:new_cmd".to_string());
+            app.message = Some("o:preview  P:quick  c:path  C:name  y:yank  d:cut  p:paste  D:del  r:rename  a:file  A:dir  f:finder  Enter:cmd  colon:new_cmd".to_string());
         }
 
         // Buffer unknown chars for drop detection

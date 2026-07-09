@@ -117,6 +117,9 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent) {
         KeyCode::Char('c') => app.copy_path(),
         KeyCode::Char('C') => app.copy_filename(),
 
+        // Reroot: 選択ディレクトリ (ファイルなら親) を新ルートに開き直す
+        KeyCode::Char('e') => app.reroot_to_selected(),
+
         // Preview file
         KeyCode::Char('o') => app.preview_file(),
         KeyCode::Char('P') => app.toggle_quick_preview(),

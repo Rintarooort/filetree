@@ -44,6 +44,7 @@ pub enum HelpAction {
     Refresh,
     StartExternalCommand,
     ExecuteCommand,
+    RerootSelected,
     Section,
 }
 
@@ -75,6 +76,7 @@ pub fn help_entries() -> Vec<HelpEntry> {
         HelpEntry { key: "d", desc: "カット", action: HelpAction::Cut },
         HelpEntry { key: "p", desc: "ペースト", action: HelpAction::Paste },
         HelpEntry { key: "── その他 ──", desc: "", action: HelpAction::Section },
+        HelpEntry { key: "e", desc: "選択ディレクトリをルートに開き直す", action: HelpAction::RerootSelected },
         HelpEntry { key: "c", desc: "パスをコピー", action: HelpAction::CopyPath },
         HelpEntry { key: "C", desc: "ファイル名をコピー", action: HelpAction::CopyFilename },
         HelpEntry { key: "f / F", desc: "Finderで表示", action: HelpAction::RevealInFinder },
@@ -580,6 +582,35 @@ impl App {
         self.git_repo.refresh(&self.tree.root.path);
         if self.selected >= self.tree.len() {
             self.selected = self.tree.len().saturating_sub(1);
+        }
+    }
+
+    /// 選択中のディレクトリ (ファイルならその親) を新しいルートにして開き直す。
+    /// 次回起動時のフォールバック用に last_root へも保存する。
+    pub fn reroot_to_selected(&mut self) {
+        let target = match self.tree.get_node(self.selected) {
+            Some(node) if node.is_dir => node.path.clone(),
+            Some(node) => match node.path.parent() {
+                Some(p) => p.to_path_buf(),
+                None => return,
+            },
+            None => return,
+        };
+
+        match FileTree::new(&target, self.show_hidden) {
+            Ok(tree) => {
+                self.tree = tree;
+                self.git_repo.refresh(&target);
+                self.marked.clear();
+                self.selected = 0;
+                self.scroll_offset = 0;
+                self.update_quick_preview();
+                crate::save_last_root(&target);
+                self.message = Some(format!("Root: {}", target.display()));
+            }
+            Err(e) => {
+                self.message = Some(format!("Reroot error: {}", e));
+            }
         }
     }
 
@@ -1395,6 +1426,7 @@ impl App {
             HelpAction::Refresh => self.refresh(),
             HelpAction::StartExternalCommand => self.start_external_command(),
             HelpAction::ExecuteCommand => self.execute_external_command(None),
+            HelpAction::RerootSelected => self.reroot_to_selected(),
             HelpAction::Section => {}
         }
     }

@@ -48,6 +48,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> usize {
             draw_confirm_popup(frame, app, action);
         }
         InputMode::Normal | InputMode::Preview => {}
+        InputMode::Help => {
+            draw_help_modal(frame, app);
+        }
     }
 
     app.tree_area_height
@@ -171,8 +174,19 @@ fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     // Left: message or help
-    let message = app.message.as_deref().unwrap_or("? for help");
-    let msg = Paragraph::new(message).block(Block::default().borders(Borders::ALL));
+    let (message, msg_style) = if let Some(ref m) = app.message {
+        (m.as_str(), Style::default())
+    } else {
+        (
+            "? for help",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    };
+    let msg = Paragraph::new(message)
+        .style(msg_style)
+        .block(Block::default().borders(Borders::ALL));
     frame.render_widget(msg, chunks[0]);
 
     // Right: stats
@@ -607,6 +621,91 @@ fn render_image_to_lines(
     }
 
     lines
+}
+
+fn draw_help_modal(frame: &mut Frame, app: &mut App) {
+    use crate::app::{help_entries, HelpAction};
+
+    let entries = help_entries();
+    let total = entries.len();
+
+    let area_height = frame.area().height.saturating_sub(4);
+    let area = centered_rect(80, area_height, frame.area());
+    let visible_height = area.height.saturating_sub(2) as usize;
+
+    app.adjust_help_scroll(visible_height);
+
+    let key_style = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+    let section_style = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+    let selected_bg = Color::Rgb(0x2a, 0x3a, 0x4a);
+
+    let scroll = app.help_scroll;
+    let selected = app.help_selected;
+
+    let items: Vec<ListItem> = entries
+        .iter()
+        .enumerate()
+        .skip(scroll)
+        .take(visible_height)
+        .map(|(i, entry)| {
+            let is_section = matches!(entry.action, HelpAction::Section);
+            let is_selected = i == selected;
+
+            if is_section {
+                ListItem::new(Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled(entry.key, section_style),
+                ]))
+            } else if is_selected {
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!(" ▶ {:<10}", entry.key),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .bg(selected_bg)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        entry.desc,
+                        Style::default().fg(Color::White).bg(selected_bg),
+                    ),
+                ]))
+            } else {
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("   {:<10}", entry.key),
+                        key_style,
+                    ),
+                    Span::styled(entry.desc, Style::default().fg(Color::Gray)),
+                ]))
+            }
+        })
+        .collect();
+
+    let scroll_indicator = if total > visible_height {
+        format!(" ヘルプ  ↑↓/jk: 移動  Enter: 実行  Esc: 閉じる  ({}/{}) ", selected + 1, total)
+    } else {
+        " ヘルプ  ↑↓/jk: 移動  Enter: 実行  Esc: 閉じる ".to_string()
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(scroll_indicator)
+        .title_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+        .border_style(Style::default().fg(Color::Yellow));
+
+    let list = List::new(items).block(block);
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(list, area);
 }
 
 fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {

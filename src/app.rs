@@ -18,6 +18,76 @@ pub struct ImagePreview {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum HelpAction {
+    MoveDown,
+    MoveUp,
+    MoveToTop,
+    MoveToBottom,
+    ExpandCurrent,
+    CollapseCurrent,
+    ToggleExpand,
+    PreviewFile,
+    ToggleQuickPreview,
+    NewFile,
+    NewDir,
+    Rename,
+    Delete,
+    Yank,
+    Cut,
+    Paste,
+    CopyPath,
+    CopyFilename,
+    RevealInFinder,
+    ToggleHidden,
+    ToggleMark,
+    ClearMarks,
+    Refresh,
+    StartExternalCommand,
+    ExecuteCommand,
+    Section,
+}
+
+pub struct HelpEntry {
+    pub key: &'static str,
+    pub desc: &'static str,
+    pub action: HelpAction,
+}
+
+pub fn help_entries() -> Vec<HelpEntry> {
+    vec![
+        HelpEntry { key: "── 移動 ──", desc: "", action: HelpAction::Section },
+        HelpEntry { key: "j / ↓", desc: "次へ", action: HelpAction::MoveDown },
+        HelpEntry { key: "k / ↑", desc: "前へ", action: HelpAction::MoveUp },
+        HelpEntry { key: "g", desc: "先頭へ", action: HelpAction::MoveToTop },
+        HelpEntry { key: "G", desc: "末尾へ", action: HelpAction::MoveToBottom },
+        HelpEntry { key: "l / →", desc: "展開", action: HelpAction::ExpandCurrent },
+        HelpEntry { key: "h / ←", desc: "折りたたみ", action: HelpAction::CollapseCurrent },
+        HelpEntry { key: "Space", desc: "展開/折りたたみ切替", action: HelpAction::ToggleExpand },
+        HelpEntry { key: "── プレビュー ──", desc: "", action: HelpAction::Section },
+        HelpEntry { key: "o", desc: "全画面プレビュー", action: HelpAction::PreviewFile },
+        HelpEntry { key: "P", desc: "クイックプレビュー", action: HelpAction::ToggleQuickPreview },
+        HelpEntry { key: "── ファイル操作 ──", desc: "", action: HelpAction::Section },
+        HelpEntry { key: "a", desc: "新規ファイル作成", action: HelpAction::NewFile },
+        HelpEntry { key: "A", desc: "新規ディレクトリ作成", action: HelpAction::NewDir },
+        HelpEntry { key: "r", desc: "名前変更", action: HelpAction::Rename },
+        HelpEntry { key: "D", desc: "削除", action: HelpAction::Delete },
+        HelpEntry { key: "y", desc: "ヤンク（コピー）", action: HelpAction::Yank },
+        HelpEntry { key: "d", desc: "カット", action: HelpAction::Cut },
+        HelpEntry { key: "p", desc: "ペースト", action: HelpAction::Paste },
+        HelpEntry { key: "── その他 ──", desc: "", action: HelpAction::Section },
+        HelpEntry { key: "c", desc: "パスをコピー", action: HelpAction::CopyPath },
+        HelpEntry { key: "C", desc: "ファイル名をコピー", action: HelpAction::CopyFilename },
+        HelpEntry { key: "f / F", desc: "Finderで表示", action: HelpAction::RevealInFinder },
+        HelpEntry { key: ".", desc: "隠しファイル切替", action: HelpAction::ToggleHidden },
+        HelpEntry { key: "m", desc: "マーク", action: HelpAction::ToggleMark },
+        HelpEntry { key: "u", desc: "マーク解除", action: HelpAction::ClearMarks },
+        HelpEntry { key: "R / F5", desc: "ツリーを更新", action: HelpAction::Refresh },
+        HelpEntry { key: ":", desc: "新コマンド入力", action: HelpAction::StartExternalCommand },
+        HelpEntry { key: "Enter", desc: "コマンド実行", action: HelpAction::ExecuteCommand },
+    ]
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum InputMode {
     Normal,
     Search,
@@ -27,6 +97,7 @@ pub enum InputMode {
     Confirm(ConfirmAction),
     Preview,
     ExternalCommand,
+    Help,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -66,6 +137,9 @@ pub struct App {
     pub quick_preview_scroll: usize,
     pub quick_preview_path: Option<PathBuf>,
     pub quick_preview_image: Option<ImagePreview>,
+    // Help modal state
+    pub help_selected: usize,
+    pub help_scroll: usize,
     // Drop detection
     pub drop_buffer: String,
     pub last_char_time: std::time::Instant,
@@ -144,7 +218,8 @@ impl App {
     }
 
     pub fn new(path: &Path, default_command: Option<String>) -> anyhow::Result<Self> {
-        let show_hidden = false;
+        // Show hidden files (.env, .gitignore, …) by default. Toggle off with `.`.
+        let show_hidden = true;
         let tree = FileTree::new(path, show_hidden)?;
         let git_repo = GitRepo::new(path);
         let command_history = Self::load_history();
@@ -163,6 +238,8 @@ impl App {
             last_click_time: std::time::Instant::now(),
             last_click_index: None,
             show_hidden,
+            help_selected: 1, // 最初の実行可能エントリ（インデックス0はセクションヘッダ）
+            help_scroll: 0,
             preview_content: Vec::new(),
             preview_scroll: 0,
             preview_path: None,
@@ -454,7 +531,7 @@ impl App {
             InputMode::Confirm(ConfirmAction::Delete(_)) => {
                 self.execute_delete();
             }
-            InputMode::Normal | InputMode::Preview => {}
+            InputMode::Normal | InputMode::Preview | InputMode::Help => {}
         }
         self.input_mode = InputMode::Normal;
         self.input_buffer.clear();
@@ -1259,5 +1336,66 @@ impl App {
             self.input_buffer = self.command_history[idx].clone();
         }
         self.history_index = new_index;
+    }
+
+    pub fn adjust_help_scroll(&mut self, visible_height: usize) {
+        if self.help_selected < self.help_scroll {
+            self.help_scroll = self.help_selected;
+        } else if self.help_selected >= self.help_scroll + visible_height {
+            self.help_scroll = self.help_selected - visible_height + 1;
+        }
+    }
+
+    pub fn execute_help_action(&mut self, action: HelpAction) {
+        self.input_mode = InputMode::Normal;
+        match action {
+            HelpAction::MoveDown => {
+                self.move_down();
+                self.update_quick_preview();
+            }
+            HelpAction::MoveUp => {
+                self.move_up();
+                self.update_quick_preview();
+            }
+            HelpAction::MoveToTop => {
+                self.move_to_top();
+                self.update_quick_preview();
+            }
+            HelpAction::MoveToBottom => {
+                self.move_to_bottom();
+                self.update_quick_preview();
+            }
+            HelpAction::ExpandCurrent => {
+                self.expand_current();
+                self.update_quick_preview();
+            }
+            HelpAction::CollapseCurrent => {
+                self.collapse_current();
+                self.update_quick_preview();
+            }
+            HelpAction::ToggleExpand => {
+                self.toggle_expand();
+                self.update_quick_preview();
+            }
+            HelpAction::PreviewFile => self.preview_file(),
+            HelpAction::ToggleQuickPreview => self.toggle_quick_preview(),
+            HelpAction::NewFile => self.start_new_file(),
+            HelpAction::NewDir => self.start_new_dir(),
+            HelpAction::Rename => self.start_rename(),
+            HelpAction::Delete => self.confirm_delete(),
+            HelpAction::Yank => self.yank(),
+            HelpAction::Cut => self.cut(),
+            HelpAction::Paste => self.paste(),
+            HelpAction::CopyPath => self.copy_path(),
+            HelpAction::CopyFilename => self.copy_filename(),
+            HelpAction::RevealInFinder => self.reveal_in_finder(),
+            HelpAction::ToggleHidden => self.toggle_hidden(),
+            HelpAction::ToggleMark => self.toggle_mark(),
+            HelpAction::ClearMarks => self.clear_marks(),
+            HelpAction::Refresh => self.refresh(),
+            HelpAction::StartExternalCommand => self.start_external_command(),
+            HelpAction::ExecuteCommand => self.execute_external_command(None),
+            HelpAction::Section => {}
+        }
     }
 }

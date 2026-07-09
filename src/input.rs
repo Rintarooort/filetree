@@ -14,6 +14,7 @@ pub fn handle_key_event(app: &mut App, key: KeyEvent, visible_height: usize) {
         }
         InputMode::Confirm(_) => handle_confirm_mode(app, key),
         InputMode::Preview => handle_preview_mode(app, key, visible_height),
+        InputMode::Help => handle_help_mode(app, key),
     }
 }
 
@@ -122,7 +123,7 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent) {
 
         // Help
         KeyCode::Char('?') => {
-            app.message = Some("o:preview  P:quick  c:path  C:name  y:yank  d:cut  p:paste  D:del  r:rename  a:file  A:dir  f:finder  Enter:cmd  colon:new_cmd".to_string());
+            app.input_mode = InputMode::Help;
         }
 
         // Buffer unknown chars for drop detection
@@ -198,6 +199,45 @@ fn handle_confirm_mode(app: &mut App, key: KeyEvent) {
         KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
             app.input_mode = InputMode::Normal;
             app.message = Some("Cancelled".to_string());
+        }
+        _ => {}
+    }
+}
+
+fn handle_help_mode(app: &mut App, key: KeyEvent) {
+    let entries = crate::app::help_entries();
+    let count = entries.len();
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+            app.input_mode = InputMode::Normal;
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let mut next = app.help_selected;
+            loop {
+                next = (next + 1).min(count - 1);
+                if !matches!(entries[next].action, crate::app::HelpAction::Section) || next == count - 1 {
+                    break;
+                }
+            }
+            app.help_selected = next;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            let mut prev = app.help_selected;
+            loop {
+                if prev == 0 {
+                    break;
+                }
+                prev -= 1;
+                if !matches!(entries[prev].action, crate::app::HelpAction::Section) {
+                    break;
+                }
+            }
+            app.help_selected = prev;
+        }
+        KeyCode::Enter => {
+            let action = entries[app.help_selected].action.clone();
+            app.execute_help_action(action);
         }
         _ => {}
     }
